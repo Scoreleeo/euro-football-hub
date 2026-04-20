@@ -22,8 +22,19 @@ function num(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function roundScore(value: number) {
-  return clamp(Math.round(num(value)), 0, 4);
+function softmax(values: number[]) {
+  const max = Math.max(...values);
+  const exps = values.map((v) => Math.exp(v - max));
+  const sum = exps.reduce((a, b) => a + b, 0);
+  return exps.map((v) => v / sum);
+}
+
+function goalFromExpected(xg: number) {
+  if (xg < 0.75) return 0;
+  if (xg < 1.45) return 1;
+  if (xg < 2.15) return 2;
+  if (xg < 2.85) return 3;
+  return 4;
 }
 
 export function buildPrediction(
@@ -35,144 +46,213 @@ export function buildPrediction(
 ): PredictionOutput {
   const homeRecentPoints = num(features.home.recentPoints);
   const awayRecentPoints = num(features.away.recentPoints);
+  const homeWeightedPoints = num(features.home.weightedRecentPoints);
+  const awayWeightedPoints = num(features.away.weightedRecentPoints);
 
   const homeGoalsForPerGame = num(features.home.goalsForPerGame);
   const awayGoalsForPerGame = num(features.away.goalsForPerGame);
-
   const homeGoalsAgainstPerGame = num(features.home.goalsAgainstPerGame);
   const awayGoalsAgainstPerGame = num(features.away.goalsAgainstPerGame);
 
-  const homeAwayGoalsForPerGame = num(features.home.homeAwayGoalsForPerGame);
+  const homeHomeGoalsForPerGame = num(features.home.homeAwayGoalsForPerGame);
   const awayAwayGoalsForPerGame = num(features.away.homeAwayGoalsForPerGame);
-
-  const homeAwayGoalsAgainstPerGame = num(
-    features.home.homeAwayGoalsAgainstPerGame
-  );
-  const awayAwayGoalsAgainstPerGame = num(
-    features.away.homeAwayGoalsAgainstPerGame
-  );
+  const homeHomeGoalsAgainstPerGame = num(features.home.homeAwayGoalsAgainstPerGame);
+  const awayAwayGoalsAgainstPerGame = num(features.away.homeAwayGoalsAgainstPerGame);
 
   const homeFormScore = num(features.home.formScore);
   const awayFormScore = num(features.away.formScore);
-
   const pointsGap = num(features.pointsGap);
-  const homeAdvantage = num(features.homeAdvantage, 0.45);
+  const goalDifferenceGap = num(features.goalDifferenceGap);
+  const homeAdvantage = num(features.homeAdvantage, 0.38);
 
-  const modelHomeInjuries = num(features.home.modelInjuryCount);
-  const modelAwayInjuries = num(features.away.modelInjuryCount);
+  const homeAttackStrength = num(features.home.attackStrength);
+  const awayAttackStrength = num(features.away.attackStrength);
+  const homeDefenceStrength = num(features.home.defenceStrength);
+  const awayDefenceStrength = num(features.away.defenceStrength);
 
-  const homeAttack =
-    homeGoalsForPerGame * 1.2 + homeAwayGoalsForPerGame * 1.15;
+  const homeEdge =
+    (homeFormScore - awayFormScore) * 0.09 +
+    (homeWeightedPoints - awayWeightedPoints) * 0.06 +
+    pointsGap * 0.018 +
+    goalDifferenceGap * 0.008 +
+    homeAdvantage;
 
-  const awayAttack =
-    awayGoalsForPerGame * 1.2 + awayAwayGoalsForPerGame * 1.15;
+  let homeExpectedGoals =
+    0.6 +
+    homeAttackStrength * 0.28 +
+    homeGoalsForPerGame * 0.16 +
+    homeHomeGoalsForPerGame * 0.22 +
+    awayGoalsAgainstPerGame * 0.11 +
+    awayAwayGoalsAgainstPerGame * 0.18 -
+    awayDefenceStrength * 0.08 +
+    homeEdge * 0.28;
 
-  const homeDefenceWeakness =
-    homeGoalsAgainstPerGame * 0.9 + homeAwayGoalsAgainstPerGame * 1.05;
+  let awayExpectedGoals =
+    0.5 +
+    awayAttackStrength * 0.24 +
+    awayGoalsForPerGame * 0.14 +
+    awayAwayGoalsForPerGame * 0.2 +
+    homeGoalsAgainstPerGame * 0.1 +
+    homeHomeGoalsAgainstPerGame * 0.14 -
+    homeDefenceStrength * 0.08 -
+    homeEdge * 0.2;
 
-  const awayDefenceWeakness =
-    awayGoalsAgainstPerGame * 0.9 + awayAwayGoalsAgainstPerGame * 1.05;
+  if (context?.lastMeeting && context.lastMeeting.includes("0-0")) {
+    homeExpectedGoals -= 0.06;
+    awayExpectedGoals -= 0.06;
+  }
 
-  const homeRating =
-    homeFormScore +
-    homeAttack * 1.3 -
-    homeDefenceWeakness * 0.7 +
-    pointsGap * 0.03 +
-    homeAdvantage -
-    modelHomeInjuries * 0.15;
+  if (context?.lastVenueMeeting && context.lastVenueMeeting.includes("0-0")) {
+    homeExpectedGoals -= 0.04;
+    awayExpectedGoals -= 0.04;
+  }
 
-  const awayRating =
-    awayFormScore +
-    awayAttack * 1.3 -
-    awayDefenceWeakness * 0.7 -
-    pointsGap * 0.03 -
-    modelAwayInjuries * 0.15;
+  homeExpectedGoals = clamp(homeExpectedGoals, 0.25, 2.7);
+  awayExpectedGoals = clamp(awayExpectedGoals, 0.2, 2.4);
 
-  const ratingGap = num(homeRating - awayRating);
+  const expectedGoalGap = homeExpectedGoals - awayExpectedGoals;
+  const totalExpectedGoals = homeExpectedGoals + awayExpectedGoals;
 
-  let predictedHomeGoals =
-    1.15 +
-    homeGoalsForPerGame * 0.55 +
-    awayGoalsAgainstPerGame * 0.35 +
-    homeAwayGoalsForPerGame * 0.35 +
-    homeAdvantage * 0.5 -
-    modelHomeInjuries * 0.08;
+  let homeGoals = goalFromExpected(homeExpectedGoals);
+  let awayGoals = goalFromExpected(awayExpectedGoals);
 
-  let predictedAwayGoals =
-    0.85 +
-    awayGoalsForPerGame * 0.5 +
-    homeGoalsAgainstPerGame * 0.3 +
-    awayAwayGoalsForPerGame * 0.3 -
-    modelAwayInjuries * 0.08;
+  if (Math.abs(expectedGoalGap) < 0.18) {
+    if (totalExpectedGoals < 2.2) {
+      homeGoals = 1;
+      awayGoals = 1;
+    } else {
+      homeGoals = 2;
+      awayGoals = 2;
+    }
+  }
 
-  predictedHomeGoals += clamp(ratingGap * 0.12, -0.6, 0.9);
-  predictedAwayGoals += clamp(-ratingGap * 0.12, -0.6, 0.9);
+  if (Math.abs(expectedGoalGap) >= 0.22 && Math.abs(expectedGoalGap) < 0.55) {
+    if (expectedGoalGap > 0) {
+      homeGoals = Math.max(homeGoals, awayGoals + 1);
+    } else {
+      awayGoals = Math.max(awayGoals, homeGoals + 1);
+    }
+  }
 
-  predictedHomeGoals = num(predictedHomeGoals, 1);
-  predictedAwayGoals = num(predictedAwayGoals, 1);
+  if (Math.abs(expectedGoalGap) >= 0.55) {
+    if (expectedGoalGap > 0) {
+      homeGoals = Math.max(homeGoals, awayGoals + 1);
+    } else {
+      awayGoals = Math.max(awayGoals, homeGoals + 1);
+    }
+  }
 
-  const homeGoals = roundScore(predictedHomeGoals);
-  const awayGoals = roundScore(predictedAwayGoals);
+  if (homeGoals >= 4 && totalExpectedGoals < 3.6) {
+    homeGoals = 3;
+  }
+
+  if (awayGoals >= 4 && totalExpectedGoals < 3.4) {
+    awayGoals = 3;
+  }
+
+  if (homeGoals === 3 && awayGoals === 3) {
+    homeGoals = 2;
+    awayGoals = 2;
+  }
+
+  if (homeGoals === 4 && awayGoals >= 2 && expectedGoalGap > 0.45) {
+    awayGoals -= 1;
+  }
+
+  if (awayGoals === 4 && homeGoals >= 2 && expectedGoalGap < -0.45) {
+    homeGoals -= 1;
+  }
+
+  homeGoals = clamp(homeGoals, 0, 4);
+  awayGoals = clamp(awayGoals, 0, 4);
+
+  const drawBias =
+    1.35 -
+    Math.abs(expectedGoalGap) * 1.55 -
+    Math.max(0, totalExpectedGoals - 2.35) * 0.18;
+
+  const [homeProbRaw, drawProbRaw, awayProbRaw] = softmax([
+    homeEdge * 1.45 + homeExpectedGoals * 0.12,
+    drawBias,
+    -homeEdge * 1.3 + awayExpectedGoals * 0.1,
+  ]);
+
+  let homeProb = Math.round(homeProbRaw * 100);
+  let drawProb = Math.round(drawProbRaw * 100);
+  let awayProb = Math.round(awayProbRaw * 100);
+
+  const total = homeProb + drawProb + awayProb;
+  if (total !== 100) {
+    homeProb += 100 - total;
+  }
+
+  homeProb = clamp(homeProb, 14, 72);
+  drawProb = clamp(drawProb, 16, 36);
+  awayProb = clamp(awayProb, 12, 70);
+
+  const adjustedTotal = homeProb + drawProb + awayProb;
+  if (adjustedTotal !== 100) {
+    const diff = 100 - adjustedTotal;
+    if (homeProb >= awayProb && homeProb >= drawProb) homeProb += diff;
+    else if (awayProb >= homeProb && awayProb >= drawProb) awayProb += diff;
+    else drawProb += diff;
+  }
 
   let winner = "Draw";
   if (homeGoals > awayGoals) winner = features.home.teamName;
   if (awayGoals > homeGoals) winner = features.away.teamName;
 
-  const rawHomeProb = 45 + ratingGap * 8 + homeAdvantage * 10;
-  const rawAwayProb = 45 - ratingGap * 8 - homeAdvantage * 4;
-
-  let homeProb = clamp(Math.round(num(rawHomeProb, 45)), 12, 78);
-  let awayProb = clamp(Math.round(num(rawAwayProb, 45)), 12, 78);
-  let drawProb = 100 - homeProb - awayProb;
-
-  if (drawProb < 10) {
-    const deficit = 10 - drawProb;
-    homeProb -= Math.ceil(deficit / 2);
-    awayProb -= Math.floor(deficit / 2);
-    drawProb = 10;
+  if (winner === "Draw") {
+    if (homeProb >= 45 && homeProb - drawProb >= 8) {
+      winner = features.home.teamName;
+      homeGoals = clamp(awayGoals + 1, 1, 3);
+    } else if (awayProb >= 45 && awayProb - drawProb >= 8) {
+      winner = features.away.teamName;
+      awayGoals = clamp(homeGoals + 1, 1, 3);
+    }
   }
 
-  homeProb = clamp(homeProb, 10, 80);
-  awayProb = clamp(awayProb, 10, 80);
-  drawProb = clamp(100 - homeProb - awayProb, 10, 35);
+  const sorted = [homeProb, drawProb, awayProb].sort((a, b) => b - a);
+  const separation = sorted[0] - sorted[1];
 
-  const confidence = clamp(
-    Math.round(
-      56 +
-        Math.abs(ratingGap) * 7 +
-        Math.abs(pointsGap) * 0.15 +
-        Math.abs(homeRecentPoints - awayRecentPoints) * 0.8
-    ),
-    55,
-    89
-  );
+const confidenceRaw =
+  52 +
+  separation * 0.9 +
+  Math.abs(expectedGoalGap) * 5 +
+  Math.abs(pointsGap) * 0.04;
+
+let confidence = Math.round(confidenceRaw);
+
+if (Math.abs(expectedGoalGap) < 0.2) {
+  confidence = clamp(confidence, 50, 62);
+} else if (Math.abs(expectedGoalGap) < 0.5) {
+  confidence = clamp(confidence, 55, 70);
+} else {
+  confidence = clamp(confidence, 60, 78);
+}
 
   const insights: string[] = [];
 
   insights.push(
-    `${features.home.teamName} have taken ${homeRecentPoints} points from their last 5 matches.`
+    `${features.home.teamName} have taken ${homeRecentPoints} points from their last 5, compared with ${awayRecentPoints} for ${features.away.teamName}.`
   );
 
   insights.push(
-    `${features.away.teamName} average ${awayGoalsAgainstPerGame.toFixed(
-      1
-    )} goals conceded per game across their last 5.`
+    `${features.home.teamName} average ${homeHomeGoalsForPerGame.toFixed(1)} goals at home recently, while ${features.away.teamName} concede ${awayAwayGoalsAgainstPerGame.toFixed(1)} away.`
   );
 
-  if (context?.lastMeeting) {
-    insights.push(`Last league meeting: ${context.lastMeeting}.`);
-  }
+  insights.push(
+    `${features.away.teamName} average ${awayAwayGoalsForPerGame.toFixed(1)} goals away, while ${features.home.teamName} concede ${homeHomeGoalsAgainstPerGame.toFixed(1)} at home.`
+  );
 
-  if (context?.lastVenueMeeting) {
-    insights.push(`Last meeting at this venue: ${context.lastVenueMeeting}.`);
-  }
-
-  if (!context?.lastMeeting && pointsGap !== 0) {
+  if (Math.abs(pointsGap) >= 4) {
     insights.push(
-      `${features.home.teamName} and ${features.away.teamName} are separated by ${Math.abs(
-        pointsGap
-      )} points in the table.`
+      `${features.home.teamName} and ${features.away.teamName} are separated by ${Math.abs(pointsGap)} points in the table.`
     );
+  } else if (context?.lastMeeting) {
+    insights.push(`Last league meeting: ${context.lastMeeting}.`);
+  } else if (context?.lastVenueMeeting) {
+    insights.push(`Last meeting at this venue: ${context.lastVenueMeeting}.`);
   }
 
   return {

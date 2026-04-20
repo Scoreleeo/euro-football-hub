@@ -25,11 +25,6 @@ type PredictionMatch = {
   };
 };
 
-type CheckoutMode =
-  | { type: "division" }
-  | { type: "match"; match: PredictionMatch }
-  | null;
-
 function TeamLogo({
   src,
   alt,
@@ -58,10 +53,10 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
   let label = "Low";
   let styles = "bg-red-500/15 text-red-300 border-red-400/20";
 
-  if (confidence >= 70) {
+  if (confidence >= 72) {
     label = "High";
     styles = "bg-green-500/15 text-green-300 border-green-400/20";
-  } else if (confidence >= 60) {
+  } else if (confidence >= 62) {
     label = "Medium";
     styles = "bg-yellow-500/15 text-yellow-300 border-yellow-400/20";
   }
@@ -100,67 +95,54 @@ function ProbabilityBar({
   );
 }
 
+function getPredictionLabel(match: PredictionMatch) {
+  const { winner } = match.prediction;
+
+  if (winner === "Draw") {
+    return "Draw";
+  }
+
+  if (winner === match.home) {
+    return "Home Win";
+  }
+
+  if (winner === match.away) {
+    return "Away Win";
+  }
+
+  return winner;
+}
+
+function getPredictionAccent(match: PredictionMatch) {
+  const label = getPredictionLabel(match);
+
+  if (label === "Home Win") {
+    return "text-green-300";
+  }
+
+  if (label === "Away Win") {
+    return "text-blue-300";
+  }
+
+  return "text-yellow-300";
+}
+
 export default function PredictionsPage() {
   const [matches, setMatches] = useState<PredictionMatch[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sampleUnlockedIds, setSampleUnlockedIds] = useState<number[]>([]);
-  const [divisionUnlocked, setDivisionUnlocked] = useState(false);
-  const [checkout, setCheckout] = useState<CheckoutMode>(null);
   const [leagueId, setLeagueId] = useState<number>(TOP_EURO_LEAGUES[0].id);
 
   const selectedLeague =
     TOP_EURO_LEAGUES.find((league) => league.id === leagueId) ||
     TOP_EURO_LEAGUES[0];
 
-  async function loadPurchaseState(currentMatches: PredictionMatch[]) {
-    if (!currentMatches.length) return;
-
-    const league = currentMatches[0]?.league;
-    let divisionPaid = false;
-    let paidMatchIds: number[] = [];
-
-    if (league) {
-      const leagueRes = await fetch(
-        `/api/purchases?league=${encodeURIComponent(league)}`,
-        { cache: "no-store" }
-      );
-      const leagueData = await leagueRes.json();
-      divisionPaid = Boolean(leagueData.unlocked);
-    }
-
-    if (!divisionPaid) {
-      const results = await Promise.all(
-        currentMatches.map(async (match) => {
-          const res = await fetch(`/api/purchases?fixtureId=${match.fixtureId}`, {
-            cache: "no-store",
-          });
-          const data = await res.json();
-          return data.unlocked ? match.fixtureId : null;
-        })
-      );
-
-      paidMatchIds = results.filter((id): id is number => id !== null);
-    }
-
-    setDivisionUnlocked(divisionPaid);
-
-    setSampleUnlockedIds((prev) => {
-      const combined = new Set([...prev, ...paidMatchIds]);
-      return Array.from(combined);
-    });
-  }
-
   useEffect(() => {
     setLoading(true);
-    setSampleUnlockedIds([]);
-    setDivisionUnlocked(false);
 
     fetch(`/api/predictions?league=${leagueId}&season=2025`)
       .then((res) => res.json())
-      .then(async (data) => {
-        const loadedMatches = data.matches || [];
-        setMatches(loadedMatches);
-        await loadPurchaseState(loadedMatches);
+      .then((data) => {
+        setMatches(data.matches || []);
         setLoading(false);
         window.scrollTo({ top: 0, behavior: "smooth" });
       })
@@ -169,62 +151,6 @@ export default function PredictionsPage() {
         setLoading(false);
       });
   }, [leagueId]);
-
-  function unlockSamples() {
-    const ids = matches.slice(0, 2).map((m) => m.fixtureId);
-
-    setSampleUnlockedIds((prev) => {
-      const combined = new Set([...prev, ...ids]);
-      return Array.from(combined);
-    });
-  }
-
-  function openDivisionCheckout() {
-    setCheckout({ type: "division" });
-  }
-
-  function openMatchCheckout(match: PredictionMatch) {
-    setCheckout({ type: "match", match });
-  }
-
-  function closeCheckout() {
-    setCheckout(null);
-  }
-
-  async function completeFakeCheckout() {
-    if (!checkout) return;
-
-    const body =
-      checkout.type === "division"
-        ? {
-            type: "division",
-            league: matches[0]?.league || selectedLeague.name,
-          }
-        : {
-            type: "match",
-            fixtureId: checkout.match.fixtureId,
-            home: checkout.match.home,
-            away: checkout.match.away,
-            league: checkout.match.league,
-          };
-
-    const res = await fetch("/api/checkout", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    const data = await res.json();
-
-    if (data.url) {
-      window.location.href = data.url;
-      return;
-    }
-
-    alert(data.error || "Checkout failed");
-  }
 
   return (
     <main className="min-h-screen bg-[#0b1220] p-6 text-white">
@@ -239,8 +165,9 @@ export default function PredictionsPage() {
           </h1>
 
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-            AI-style match predictions for upcoming fixtures across Europe’s top
-            leagues.
+            Smarter match outlooks for upcoming fixtures across Europe’s top
+            leagues. We now focus on the most credible prediction type:
+            home win, draw, or away win.
           </p>
 
           <div className="mt-2 text-sm text-slate-400">
@@ -248,22 +175,6 @@ export default function PredictionsPage() {
             <span className="font-semibold text-white">
               {selectedLeague.name}
             </span>
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-3">
-            <button
-              onClick={openDivisionCheckout}
-              className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-400"
-            >
-              Unlock All Predictions – £9.99
-            </button>
-
-            <button
-              onClick={unlockSamples}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10"
-            >
-              View Sample Predictions
-            </button>
           </div>
         </section>
 
@@ -294,71 +205,28 @@ export default function PredictionsPage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-yellow-400/20 bg-yellow-500/10 p-5">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wider text-yellow-300">
-                Premium Division Access
-              </div>
-              <h2 className="mt-1 text-2xl font-bold">
-                Unlock every prediction in this league
-              </h2>
-              <p className="mt-2 max-w-2xl text-sm text-yellow-100/90">
-                Get every upcoming match prediction, win probabilities,
-                confidence scores, and premium insights in one unlock.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              {divisionUnlocked ? (
-                <span className="rounded-2xl border border-green-400/20 bg-green-500/10 px-5 py-4 text-center text-green-300">
-                  Division unlocked
-                </span>
-              ) : (
-                <>
-                  <div className="rounded-2xl border border-yellow-300/20 bg-black/20 px-5 py-4 text-center">
-                    <div className="text-sm text-yellow-200">Division Pass</div>
-                    <div className="mt-1 text-3xl font-black">£9.99</div>
-                  </div>
-
-                  <button
-                    onClick={openDivisionCheckout}
-                    className="rounded-xl bg-yellow-400 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-yellow-300"
-                  >
-                    Unlock Now
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </section>
-
         <section className="grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-[#111827] p-4">
             <div className="text-xs uppercase tracking-wide text-slate-400">
               Model status
             </div>
-            <div className="mt-2 text-lg font-bold">Updated today</div>
+            <div className="mt-2 text-lg font-bold">Outcome mode active</div>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-[#111827] p-4">
             <div className="text-xs uppercase tracking-wide text-slate-400">
-              Sample access
+              Prediction style
             </div>
             <div className="mt-2 text-lg font-bold">
-              {sampleUnlockedIds.length > 0
-                ? `${sampleUnlockedIds.length} unlocked`
-                : "Try before you buy"}
+              Home win / Draw / Away win
             </div>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-[#111827] p-4">
             <div className="text-xs uppercase tracking-wide text-slate-400">
-              Division access
+              Access
             </div>
-            <div className="mt-2 text-lg font-bold">
-              {divisionUnlocked ? "Active" : "Not unlocked"}
-            </div>
+            <div className="mt-2 text-lg font-bold">All unlocked</div>
           </div>
         </section>
 
@@ -368,45 +236,24 @@ export default function PredictionsPage() {
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {matches.map((match) => {
-              const isSampleUnlocked = sampleUnlockedIds.includes(
-                match.fixtureId
-              );
-              const unlocked = divisionUnlocked || isSampleUnlocked;
-
-              return (
-                <PredictionCard
-                  key={match.fixtureId}
-                  match={match}
-                  unlocked={unlocked}
-                  onUnlock={() => openMatchCheckout(match)}
-                />
-              );
-            })}
+            {matches.map((match) => (
+              <PredictionCard key={match.fixtureId} match={match} />
+            ))}
           </div>
         )}
       </div>
-
-      {checkout ? (
-        <FakeCheckoutModal
-          checkout={checkout}
-          onClose={closeCheckout}
-          onConfirm={completeFakeCheckout}
-        />
-      ) : null}
     </main>
   );
 }
 
 function PredictionCard({
   match,
-  unlocked,
-  onUnlock,
 }: {
   match: PredictionMatch;
-  unlocked: boolean;
-  onUnlock: () => void;
 }) {
+  const predictionLabel = getPredictionLabel(match);
+  const predictionAccent = getPredictionAccent(match);
+
   return (
     <div className="rounded-2xl border border-white/10 bg-[#111827] p-4 shadow-xl">
       <div className="mb-2 flex items-center justify-between gap-3 text-sm text-slate-400">
@@ -432,139 +279,66 @@ function PredictionCard({
         </div>
       </div>
 
-      <div className="mt-4">
-        {unlocked ? (
-          <div className="space-y-3 rounded-xl border border-green-400/20 bg-green-500/10 p-3 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div className="font-medium">
-                🏆 Winner: {match.prediction.winner}
-              </div>
-              <ConfidenceBadge confidence={match.prediction.confidence} />
+      <div className="mt-4 space-y-3 rounded-xl border border-green-400/20 bg-green-500/10 p-3 text-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-slate-400">
+              Prediction
             </div>
-
-            <div>📊 Score: {match.prediction.score}</div>
-            <div>🎯 Confidence: {match.prediction.confidence}%</div>
-
-            <div className="pt-2">
-              <div className="mb-2 text-xs uppercase tracking-wide text-slate-300">
-                Win probabilities
-              </div>
-
-              <div className="space-y-2">
-                <ProbabilityBar
-                  label={match.home}
-                  value={match.prediction.probabilities.home}
-                  barClassName="bg-green-400"
-                />
-                <ProbabilityBar
-                  label="Draw"
-                  value={match.prediction.probabilities.draw}
-                  barClassName="bg-yellow-400"
-                />
-                <ProbabilityBar
-                  label={match.away}
-                  value={match.prediction.probabilities.away}
-                  barClassName="bg-blue-400"
-                />
-              </div>
-            </div>
-
-            <div className="pt-2">
-              <div className="mb-2 text-xs uppercase tracking-wide text-slate-300">
-                Match insights
-              </div>
-
-              <ul className="space-y-2 text-xs text-slate-200">
-                {match.prediction.insights.map((insight, index) => (
-                  <li key={index} className="rounded-lg bg-black/20 px-3 py-2">
-                    {insight}
-                  </li>
-                ))}
-              </ul>
+            <div className={`text-xl font-black ${predictionAccent}`}>
+              {predictionLabel}
             </div>
           </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-              <div className="text-sm font-medium text-slate-200">
-                🔒 Pro Insight Locked
-              </div>
-              <div className="mt-1 text-xs text-slate-400">
-                Unlock win probability, score prediction, confidence rating,
-                and match-specific insights.
-              </div>
-            </div>
 
-            <button
-              onClick={onUnlock}
-              className="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white hover:bg-red-400"
-            >
-              Unlock for £1.99
-            </button>
+          <ConfidenceBadge confidence={match.prediction.confidence} />
+        </div>
+
+        <div className="rounded-lg bg-black/20 px-3 py-3">
+          <div className="text-[11px] uppercase tracking-wide text-slate-400">
+            Confidence
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function FakeCheckoutModal({
-  checkout,
-  onClose,
-  onConfirm,
-}: {
-  checkout: CheckoutMode;
-  onClose: () => void;
-  onConfirm: () => void;
-}) {
-  if (!checkout) return null;
-
-  const title =
-    checkout.type === "division"
-      ? "Unlock Full Division"
-      : `Unlock ${checkout.match.home} vs ${checkout.match.away}`;
-
-  const price = checkout.type === "division" ? "£9.99" : "£1.99";
-  const description =
-    checkout.type === "division"
-      ? "This will unlock every prediction in the current league."
-      : "This will unlock the full prediction insight for this single match.";
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#111827] p-6 shadow-2xl">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-red-300">
-          Checkout
+          <div className="mt-1 text-lg font-bold text-white">
+            {match.prediction.confidence}%
+          </div>
         </div>
 
-        <h3 className="text-2xl font-black">{title}</h3>
-        <p className="mt-2 text-sm text-slate-300">{description}</p>
+        <div className="pt-2">
+          <div className="mb-2 text-xs uppercase tracking-wide text-slate-300">
+            Win probabilities
+          </div>
 
-        <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
-          <div className="text-sm text-slate-400">Amount due</div>
-          <div className="mt-1 text-3xl font-black">{price}</div>
+          <div className="space-y-2">
+            <ProbabilityBar
+              label={match.home}
+              value={match.prediction.probabilities.home}
+              barClassName="bg-green-400"
+            />
+            <ProbabilityBar
+              label="Draw"
+              value={match.prediction.probabilities.draw}
+              barClassName="bg-yellow-400"
+            />
+            <ProbabilityBar
+              label={match.away}
+              value={match.prediction.probabilities.away}
+              barClassName="bg-blue-400"
+            />
+          </div>
         </div>
 
-        <div className="mt-5 space-y-3">
-          <button
-            onClick={onConfirm}
-            className="w-full rounded-xl bg-red-500 px-4 py-3 font-semibold text-white hover:bg-red-400"
-          >
-            Continue to checkout
-          </button>
+        <div className="pt-2">
+          <div className="mb-2 text-xs uppercase tracking-wide text-slate-300">
+            Match insights
+          </div>
 
-          <button
-            onClick={onClose}
-            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 font-semibold text-slate-200 hover:bg-white/10"
-          >
-            Cancel
-          </button>
+          <ul className="space-y-2 text-xs text-slate-200">
+            {match.prediction.insights.map((insight, index) => (
+              <li key={index} className="rounded-lg bg-black/20 px-3 py-2">
+                {insight}
+              </li>
+            ))}
+          </ul>
         </div>
-
-        <p className="mt-4 text-xs text-slate-500">
-          This opens a Stripe Checkout session. Unlocks are applied after
-          successful payment via webhook.
-        </p>
       </div>
     </div>
   );
