@@ -31,11 +31,14 @@ type StandingRow = {
   form: string;
 };
 
-type TeamNewsItem = {
+type NewsItem = {
   id: string;
   title: string;
-  summary: string;
-  kind: "injury" | "transfer";
+  summary?: string;
+  source?: string;
+  date?: string;
+  link?: string;
+  kind?: "breaking" | "injury" | "transfer" | "news" | string;
 };
 
 type DashboardPayload = {
@@ -43,7 +46,7 @@ type DashboardPayload = {
   fixtures: MatchRow[];
   results: MatchRow[];
   live: MatchRow[];
-  teamNews: TeamNewsItem[];
+  news?: NewsItem[];
 };
 
 const SEASON = 2025;
@@ -284,6 +287,24 @@ export default function HomePage() {
       return value;
     }
   }
+
+  function formatNewsDate(value?: string) {
+    if (!value) return "";
+    try {
+      return new Date(value).toLocaleString();
+    } catch {
+      return value;
+    }
+  }
+
+  const news = data?.news?.slice(0, 6) ?? [];
+
+  const kindClasses: Record<string, string> = {
+    breaking: "bg-red-500 text-white shadow-md shadow-red-500/30",
+    injury: "bg-yellow-500 text-black",
+    transfer: "bg-blue-500 text-white",
+    news: "bg-white/10 text-white",
+  };
 
   return (
     <main className="min-h-screen bg-[#0b1220] text-white">
@@ -573,7 +594,7 @@ export default function HomePage() {
               </SectionCard>
             </div>
 
-            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <div className="mt-6">
               <SectionCard title="Latest Results">
                 {data.results.length === 0 ? (
                   <p className="text-slate-300">
@@ -620,26 +641,89 @@ export default function HomePage() {
                   </div>
                 )}
               </SectionCard>
+            </div>
 
-              <SectionCard title="Team Updates">
-                {data.teamNews.length === 0 ? (
-                  <p className="text-slate-300">No team updates available.</p>
+            <div className="mt-6">
+              <SectionCard title="Football News">
+                {news.length === 0 ? (
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-slate-300">
+                    Football news feed unavailable right now.
+                  </div>
                 ) : (
-                  <div className="space-y-3">
-                    {data.teamNews.map((item) => (
-                      <div
-                        key={item.id}
-                        className="rounded-2xl border border-white/10 bg-white/5 p-3"
-                      >
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                          {item.kind}
+                  <div className="space-y-5">
+                    <div className="mb-1 flex items-center gap-2">
+                      <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500"></div>
+                      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-red-400">
+                        Live Updates
+                      </span>
+                    </div>
+
+                    {news.map((article, i) => {
+                      const isFeatured = i === 0;
+                      const kind = article.kind?.toLowerCase() || "news";
+
+                      const cardClasses = isFeatured
+                        ? "block overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-[#1e293b] via-[#0f172a] to-[#020617] p-7 shadow-lg transition hover:border-red-400/30 hover:bg-white/[0.04] md:p-8"
+                        : "block rounded-2xl border border-white/10 bg-white/5 p-5 transition hover:border-white/20 hover:bg-white/10";
+
+                      const titleClasses = isFeatured
+                        ? "mt-4 max-w-4xl text-3xl font-black leading-tight text-white md:text-4xl lg:text-5xl"
+                        : "mt-2 text-lg font-bold leading-tight text-white md:text-xl";
+
+                      const summaryClasses = isFeatured
+                        ? "mt-4 max-w-3xl text-base leading-7 text-slate-300 md:text-lg"
+                        : "mt-3 text-sm leading-6 text-slate-300";
+
+                      const content = (
+                        <>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${
+                                kindClasses[kind] || kindClasses.news
+                              }`}
+                            >
+                              {kind}
+                            </span>
+
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                              {article.source || "Football News"}
+                            </span>
+                          </div>
+
+                          <div className={titleClasses}>{article.title}</div>
+
+                          {article.summary ? (
+                            <div className={summaryClasses}>{article.summary}</div>
+                          ) : null}
+
+                          {article.date ? (
+                            <div className="mt-4 text-xs font-medium text-slate-500">
+                              {formatNewsDate(article.date)}
+                            </div>
+                          ) : null}
+                        </>
+                      );
+
+                      if (article.link) {
+                        return (
+                          <a
+                            key={article.id}
+                            href={article.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={cardClasses}
+                          >
+                            {content}
+                          </a>
+                        );
+                      }
+
+                      return (
+                        <div key={article.id} className={cardClasses}>
+                          {content}
                         </div>
-                        <div className="mt-1 font-semibold">{item.title}</div>
-                        <div className="mt-1 text-sm text-slate-300">
-                          {item.summary}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </SectionCard>
