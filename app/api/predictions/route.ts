@@ -26,11 +26,6 @@ function formatScoreline(match: any) {
   return `${homeName} ${homeGoals}-${awayGoals} ${awayName}`;
 }
 
-function safeNumber(value: unknown, fallback = 0) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
 function normalizeScoreLabel(value: string) {
   return String(value || "")
     .trim()
@@ -166,13 +161,13 @@ export async function GET(request: NextRequest) {
             team: homeTeamId,
             league,
             season,
-            last: 10,
+            last: 20,
           }),
           apiFootballFetch<any>("/fixtures", {
             team: awayTeamId,
             league,
             season,
-            last: 10,
+            last: 20,
           }),
           apiFootballFetch<any>("/fixtures/headtohead", {
             h2h: `${homeTeamId}-${awayTeamId}`,

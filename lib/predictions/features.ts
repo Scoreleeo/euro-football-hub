@@ -15,9 +15,19 @@ export type TeamFormFeatures = {
   goalsAgainstPerGame: number;
   cleanSheets: number;
   failedToScore: number;
+
+  homeAwayMatchesUsed: number;
   homeAwayPointsPerGame: number;
   homeAwayGoalsForPerGame: number;
   homeAwayGoalsAgainstPerGame: number;
+
+  weightedRecentPoints: number;
+  weightedGoalsForPerGame: number;
+  weightedGoalsAgainstPerGame: number;
+
+  attackStrength: number;
+  defenceStrength: number;
+
   tableRank: number;
   tablePoints: number;
   goalDifference: number;
@@ -82,11 +92,15 @@ export function buildTeamFormFeatures(input: {
   standingsRaw: RawStanding;
   isHomeContext: boolean;
 }): TeamFormFeatures {
-  const fixtures = (input.recentFixturesRaw?.response || []).filter(
-    (fixture: any) => fixture.fixture?.status?.short === "FT"
-  );
+  const fixtures = (input.recentFixturesRaw?.response || [])
+    .filter((fixture: any) => fixture.fixture?.status?.short === "FT")
+    .slice(0, 20);
 
   const standing = getStandingRow(input.standingsRaw, input.teamId);
+  const weights = [
+    1.8, 1.65, 1.5, 1.35, 1.2, 1.1, 1.0, 0.95, 0.9, 0.85,
+    0.8, 0.75, 0.72, 0.69, 0.66, 0.63, 0.6, 0.58, 0.56, 0.54,
+  ];
 
   let recentPoints = 0;
   let recentWins = 0;
@@ -97,12 +111,18 @@ export function buildTeamFormFeatures(input: {
   let cleanSheets = 0;
   let failedToScore = 0;
 
-  let contextMatches = 0;
-  let contextPoints = 0;
-  let contextGoalsFor = 0;
-  let contextGoalsAgainst = 0;
+  let homeAwayMatchesUsed = 0;
+  let homeAwayPoints = 0;
+  let homeAwayGoalsFor = 0;
+  let homeAwayGoalsAgainst = 0;
 
-  for (const fixture of fixtures) {
+  let weightedPointsTotal = 0;
+  let weightedGoalsForTotal = 0;
+  let weightedGoalsAgainstTotal = 0;
+  let totalWeight = 0;
+
+  fixtures.forEach((fixture: any, index: number) => {
+    const weight = weights[index] ?? 0.5;
     const points = getFixturePoints(fixture, input.teamId);
     const { goalsFor, goalsAgainst, isHome } = getFixtureGoals(
       fixture,
@@ -113,6 +133,11 @@ export function buildTeamFormFeatures(input: {
     goalsForTotal += goalsFor;
     goalsAgainstTotal += goalsAgainst;
 
+    weightedPointsTotal += points * weight;
+    weightedGoalsForTotal += goalsFor * weight;
+    weightedGoalsAgainstTotal += goalsAgainst * weight;
+    totalWeight += weight;
+
     if (points === 3) recentWins += 1;
     else if (points === 1) recentDraws += 1;
     else recentLosses += 1;
@@ -121,34 +146,58 @@ export function buildTeamFormFeatures(input: {
     if (goalsFor === 0) failedToScore += 1;
 
     if ((input.isHomeContext && isHome) || (!input.isHomeContext && !isHome)) {
-      contextMatches += 1;
-      contextPoints += points;
-      contextGoalsFor += goalsFor;
-      contextGoalsAgainst += goalsAgainst;
+      homeAwayMatchesUsed += 1;
+      homeAwayPoints += points;
+      homeAwayGoalsFor += goalsFor;
+      homeAwayGoalsAgainst += goalsAgainst;
     }
-  }
+  });
 
   const matchesUsed = fixtures.length;
+
   const goalsForPerGame = safeAverage(goalsForTotal, matchesUsed);
   const goalsAgainstPerGame = safeAverage(goalsAgainstTotal, matchesUsed);
-  const homeAwayPointsPerGame = safeAverage(contextPoints, contextMatches);
-  const homeAwayGoalsForPerGame = safeAverage(contextGoalsFor, contextMatches);
-  const homeAwayGoalsAgainstPerGame = safeAverage(contextGoalsAgainst, contextMatches);
+
+  const homeAwayPointsPerGame = safeAverage(homeAwayPoints, homeAwayMatchesUsed);
+  const homeAwayGoalsForPerGame = safeAverage(
+    homeAwayGoalsFor,
+    homeAwayMatchesUsed
+  );
+  const homeAwayGoalsAgainstPerGame = safeAverage(
+    homeAwayGoalsAgainst,
+    homeAwayMatchesUsed
+  );
+
+  const weightedRecentPoints =
+    totalWeight > 0 ? weightedPointsTotal / totalWeight : 0;
+  const weightedGoalsForPerGame =
+    totalWeight > 0 ? weightedGoalsForTotal / totalWeight : 0;
+  const weightedGoalsAgainstPerGame =
+    totalWeight > 0 ? weightedGoalsAgainstTotal / totalWeight : 0;
 
   const tableRank = standing?.rank ?? 99;
   const tablePoints = standing?.points ?? 0;
   const goalDifference =
-    safeNumber(standing?.all?.goals?.for) - safeNumber(standing?.all?.goals?.against);
+    safeNumber(standing?.all?.goals?.for) -
+    safeNumber(standing?.all?.goals?.against);
+
+  const attackStrength =
+    homeAwayGoalsForPerGame * 0.65 +
+    weightedGoalsForPerGame * 0.25 +
+    goalsForPerGame * 0.1;
+
+  const defenceStrength =
+    homeAwayGoalsAgainstPerGame * 0.65 +
+    weightedGoalsAgainstPerGame * 0.25 +
+    goalsAgainstPerGame * 0.1;
 
   const formScore =
-    recentPoints * 1.15 +
-    goalsForPerGame * 1.4 -
-    goalsAgainstPerGame * 1.1 +
-    homeAwayPointsPerGame * 1.2 +
-    homeAwayGoalsForPerGame * 0.9 -
-    homeAwayGoalsAgainstPerGame * 0.7 +
-    cleanSheets * 0.2 -
-    failedToScore * 0.2;
+    weightedRecentPoints * 1.2 +
+    weightedGoalsForPerGame * 1.1 -
+    weightedGoalsAgainstPerGame * 0.9 +
+    homeAwayPointsPerGame * 0.85 +
+    cleanSheets * 0.1 -
+    failedToScore * 0.1;
 
   return {
     teamId: input.teamId,
@@ -162,9 +211,15 @@ export function buildTeamFormFeatures(input: {
     goalsAgainstPerGame,
     cleanSheets,
     failedToScore,
+    homeAwayMatchesUsed,
     homeAwayPointsPerGame,
     homeAwayGoalsForPerGame,
     homeAwayGoalsAgainstPerGame,
+    weightedRecentPoints,
+    weightedGoalsForPerGame,
+    weightedGoalsAgainstPerGame,
+    attackStrength,
+    defenceStrength,
     tableRank,
     tablePoints,
     goalDifference,
@@ -197,52 +252,69 @@ export function buildMatchFeatures(input: {
     isHomeContext: false,
   });
 
-  const homeAdvantage = 0.18;
+  const pointsGap = home.tablePoints - away.tablePoints;
+  const goalDifferenceGap = home.goalDifference - away.goalDifference;
+  const rankGap = away.tableRank - home.tableRank;
+  const homeAdvantage = 0.16;
 
-  const baseHomeExpectedGoals =
-    (home.homeAwayGoalsForPerGame + away.homeAwayGoalsAgainstPerGame) / 2;
+  const homeAttackStrength =
+    home.homeAwayGoalsForPerGame * 0.65 +
+    away.homeAwayGoalsAgainstPerGame * 0.35;
 
-  const baseAwayExpectedGoals =
-    (away.homeAwayGoalsForPerGame + home.homeAwayGoalsAgainstPerGame) / 2;
+  const awayAttackStrength =
+    away.homeAwayGoalsForPerGame * 0.65 +
+    home.homeAwayGoalsAgainstPerGame * 0.35;
 
-  const tableAdjustment =
-    clamp((home.tablePoints - away.tablePoints) / 40, -0.35, 0.35) * 0.18;
+  const homeDefenceStrength =
+    home.homeAwayGoalsAgainstPerGame * 0.65 +
+    away.homeAwayGoalsForPerGame * 0.35;
 
-  const goalDifferenceAdjustment =
-    clamp((home.goalDifference - away.goalDifference) / 25, -0.35, 0.35) * 0.12;
+  const awayDefenceStrength =
+    away.homeAwayGoalsAgainstPerGame * 0.65 +
+    home.homeAwayGoalsForPerGame * 0.35;
 
-  const formAdjustment =
-    clamp((home.recentPoints - away.recentPoints) / 15, -0.35, 0.35) * 0.14;
+  let homeExpectedGoals =
+    1.22 +
+    homeAttackStrength * 0.6 -
+    awayDefenceStrength * 0.4 +
+    homeAdvantage;
 
-  const expectedHomeGoals = clamp(
-    baseHomeExpectedGoals +
-      homeAdvantage +
-      tableAdjustment +
-      goalDifferenceAdjustment +
-      formAdjustment,
-    0.35,
-    2.8
-  );
+  let awayExpectedGoals =
+    1.02 +
+    awayAttackStrength * 0.55 -
+    homeDefenceStrength * 0.45;
 
-  const expectedAwayGoals = clamp(
-    baseAwayExpectedGoals -
-      tableAdjustment * 0.55 -
-      goalDifferenceAdjustment * 0.45 -
-      formAdjustment * 0.45,
-    0.25,
-    2.4
-  );
+  homeExpectedGoals += clamp(pointsGap / 40, -0.25, 0.25) * 0.22;
+  awayExpectedGoals -= clamp(pointsGap / 40, -0.25, 0.25) * 0.12;
+
+  homeExpectedGoals += clamp(goalDifferenceGap / 35, -0.2, 0.2) * 0.18;
+  awayExpectedGoals -= clamp(goalDifferenceGap / 35, -0.2, 0.2) * 0.1;
+
+  const totalXG = homeExpectedGoals + awayExpectedGoals;
+
+  if (totalXG > 3.2) {
+    const scale = 3.2 / totalXG;
+    homeExpectedGoals *= scale;
+    awayExpectedGoals *= scale;
+  } else if (totalXG < 1.8) {
+    const scale = 1.8 / Math.max(totalXG, 0.1);
+    homeExpectedGoals *= scale;
+    awayExpectedGoals *= scale;
+  }
+
+  homeExpectedGoals = clamp(homeExpectedGoals, 0.35, 2.45);
+  awayExpectedGoals = clamp(awayExpectedGoals, 0.25, 2.15);
 
   return {
     home,
     away,
-    rankGap: away.tableRank - home.tableRank,
-    pointsGap: home.tablePoints - away.tablePoints,
-    goalDifferenceGap: home.goalDifference - away.goalDifference,
+    rankGap,
+    pointsGap,
+    goalDifferenceGap,
     homeAdvantage,
     expectedGoals: {
-      home: expectedHomeGoals,
-      away: expectedAwayGoals,
+      home: homeExpectedGoals,
+      away: awayExpectedGoals,
     },
   };
 }
