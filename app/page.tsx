@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TOP_EURO_LEAGUES } from "@/lib/constants";
@@ -550,45 +551,40 @@ export default function HomePage() {
                 ) : (
                   <div className="space-y-3">
                     {data.fixtures.map((match) => (
-                      <div
-                        key={match.fixtureId}
-                        className="rounded-2xl border border-white/10 bg-white/5 p-3"
-                      >
-                        <div className="text-sm text-slate-400">
-                          {match.leagueName}
-                        </div>
+  <Link
+    key={match.fixtureId}
+    href={`/match/${match.fixtureId}`}
+    className="block rounded-2xl border border-white/10 bg-white/5 p-3 transition hover:border-red-400/40 hover:bg-white/10"
+  >
+    <div className="text-sm text-slate-400">
+      {match.leagueName}
+    </div>
 
-                        <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <TeamLogo
-                              src={match.homeLogo}
-                              alt={match.homeTeam}
-                            />
-                            <span className="truncate font-medium">
-                              {match.homeTeam}
-                            </span>
-                          </div>
+    <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <TeamLogo src={match.homeLogo} alt={match.homeTeam} />
+        <span className="truncate font-medium">
+          {match.homeTeam}
+        </span>
+      </div>
 
-                          <span className="text-sm font-semibold uppercase text-slate-400">
-                            vs
-                          </span>
+      <span className="text-sm font-semibold uppercase text-slate-400">
+        vs
+      </span>
 
-                          <div className="flex min-w-0 items-center justify-end gap-2">
-                            <span className="truncate text-right font-medium">
-                              {match.awayTeam}
-                            </span>
-                            <TeamLogo
-                              src={match.awayLogo}
-                              alt={match.awayTeam}
-                            />
-                          </div>
-                        </div>
+      <div className="flex min-w-0 items-center justify-end gap-2">
+        <span className="truncate text-right font-medium">
+          {match.awayTeam}
+        </span>
+        <TeamLogo src={match.awayLogo} alt={match.awayTeam} />
+      </div>
+    </div>
 
-                        <div className="mt-2 text-sm text-slate-300">
-                          {formatDate(match.date)}
-                        </div>
-                      </div>
-                    ))}
+    <div className="mt-2 text-sm text-slate-300">
+      {formatDate(match.date)}
+    </div>
+  </Link>
+))}
                   </div>
                 )}
               </SectionCard>
@@ -603,10 +599,11 @@ export default function HomePage() {
                 ) : (
                   <div className="space-y-3">
                     {data.results.map((match) => (
-                      <div
-                        key={match.fixtureId}
-                        className="rounded-2xl border border-white/10 bg-white/5 p-3"
-                      >
+  <Link
+    key={match.fixtureId}
+    href={`/report/${match.fixtureId}`}
+    className="block rounded-2xl border border-white/10 bg-white/5 p-3 transition hover:border-red-400/40 hover:bg-white/10"
+  >
                         <div className="text-sm text-slate-400">
                           {match.leagueName}
                         </div>
@@ -636,7 +633,7 @@ export default function HomePage() {
                             />
                           </div>
                         </div>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 )}

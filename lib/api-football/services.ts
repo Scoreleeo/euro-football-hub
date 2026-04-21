@@ -1,6 +1,15 @@
 import "server-only";
-import { buildDashboardPayload, mapFixturesResponse, mapStandingsResponse } from "./mappers";
 import {
+  buildDashboardPayload,
+  mapFixtureDetailResponse,
+  mapFixturesResponse,
+  mapStandingsResponse,
+} from "./mappers";
+import {
+  fetchFixtureByIdRaw,
+  fetchFixtureEventsRaw,
+  fetchFixtureLineupsRaw,
+  fetchFixtureStatisticsRaw,
   fetchFixturesRaw,
   fetchLiveRaw,
   fetchStandingsRaw,
@@ -46,4 +55,20 @@ export async function getDashboardData(leagueId: number, season: number) {
 export async function getLiveMatches() {
   const raw = await fetchLiveRaw();
   return mapFixturesResponse(raw);
+}
+
+export async function getFixtureDetail(fixtureId: number) {
+  const [fixtureRaw, eventsRaw, statisticsRaw, lineupsRaw] = await Promise.all([
+    fetchFixtureByIdRaw(fixtureId),
+    fetchFixtureEventsRaw(fixtureId).catch(() => ({ response: [] })),
+    fetchFixtureStatisticsRaw(fixtureId).catch(() => ({ response: [] })),
+    fetchFixtureLineupsRaw(fixtureId).catch(() => ({ response: [] })),
+  ]);
+
+  return mapFixtureDetailResponse({
+    fixtureRaw,
+    eventsRaw,
+    statisticsRaw,
+    lineupsRaw,
+  });
 }
