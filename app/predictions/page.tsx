@@ -14,13 +14,17 @@ type PredictionMatch = {
   date: string;
   prediction: {
     winner: string;
-    score: string;
+    outcome: "HOME_WIN" | "DRAW" | "AWAY_WIN";
     confidence: number;
     probabilities: {
       home: number;
       draw: number;
       away: number;
     };
+    likelyScores: Array<{
+      score: string;
+      probability: number;
+    }>;
     insights: string[];
   };
 };
@@ -53,10 +57,10 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
   let label = "Low";
   let styles = "bg-red-500/15 text-red-300 border-red-400/20";
 
-  if (confidence >= 72) {
+  if (confidence >= 70) {
     label = "High";
     styles = "bg-green-500/15 text-green-300 border-green-400/20";
-  } else if (confidence >= 62) {
+  } else if (confidence >= 60) {
     label = "Medium";
     styles = "bg-yellow-500/15 text-yellow-300 border-yellow-400/20";
   }
@@ -96,34 +100,14 @@ function ProbabilityBar({
 }
 
 function getPredictionLabel(match: PredictionMatch) {
-  const { winner } = match.prediction;
-
-  if (winner === "Draw") {
-    return "Draw";
-  }
-
-  if (winner === match.home) {
-    return "Home Win";
-  }
-
-  if (winner === match.away) {
-    return "Away Win";
-  }
-
-  return winner;
+  if (match.prediction.outcome === "HOME_WIN") return "Home Win";
+  if (match.prediction.outcome === "AWAY_WIN") return "Away Win";
+  return "Draw";
 }
 
 function getPredictionAccent(match: PredictionMatch) {
-  const label = getPredictionLabel(match);
-
-  if (label === "Home Win") {
-    return "text-green-300";
-  }
-
-  if (label === "Away Win") {
-    return "text-blue-300";
-  }
-
+  if (match.prediction.outcome === "HOME_WIN") return "text-green-300";
+  if (match.prediction.outcome === "AWAY_WIN") return "text-blue-300";
   return "text-yellow-300";
 }
 
@@ -165,9 +149,8 @@ export default function PredictionsPage() {
           </h1>
 
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-            Smarter match outlooks for upcoming fixtures across Europe’s top
-            leagues. We now focus on the most credible prediction type:
-            home win, draw, or away win.
+            Match outcome predictions with win probabilities, confidence, and
+            the three most likely scorelines.
           </p>
 
           <div className="mt-2 text-sm text-slate-400">
@@ -210,12 +193,12 @@ export default function PredictionsPage() {
             <div className="text-xs uppercase tracking-wide text-slate-400">
               Model status
             </div>
-            <div className="mt-2 text-lg font-bold">Outcome mode active</div>
+            <div className="mt-2 text-lg font-bold">Poisson score mode</div>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-[#111827] p-4">
             <div className="text-xs uppercase tracking-wide text-slate-400">
-              Prediction style
+              Prediction type
             </div>
             <div className="mt-2 text-lg font-bold">
               Home win / Draw / Away win
@@ -293,15 +276,6 @@ function PredictionCard({
           <ConfidenceBadge confidence={match.prediction.confidence} />
         </div>
 
-        <div className="rounded-lg bg-black/20 px-3 py-3">
-          <div className="text-[11px] uppercase tracking-wide text-slate-400">
-            Confidence
-          </div>
-          <div className="mt-1 text-lg font-bold text-white">
-            {match.prediction.confidence}%
-          </div>
-        </div>
-
         <div className="pt-2">
           <div className="mb-2 text-xs uppercase tracking-wide text-slate-300">
             Win probabilities
@@ -323,6 +297,26 @@ function PredictionCard({
               value={match.prediction.probabilities.away}
               barClassName="bg-blue-400"
             />
+          </div>
+        </div>
+
+        <div className="pt-2">
+          <div className="mb-2 text-xs uppercase tracking-wide text-slate-300">
+            3 most likely scores
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {match.prediction.likelyScores.map((item, index) => (
+              <div
+                key={`${match.fixtureId}-${index}`}
+                className="rounded-lg bg-black/20 px-3 py-2 text-center"
+              >
+                <div className="text-sm font-bold text-white">{item.score}</div>
+                <div className="mt-1 text-[11px] text-slate-400">
+                  {item.probability}%
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
